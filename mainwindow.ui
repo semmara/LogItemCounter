@@ -117,6 +117,8 @@
      <string>LogItemCounter</string>
     </property>
     <addaction name="action_about_LogItemCounter"/>
+    <addaction name="separator"/>
+    <addaction name="actionQuit"/>
    </widget>
    <addaction name="menuLogItemCounter"/>
   </widget>
@@ -124,6 +126,11 @@
   <action name="action_about_LogItemCounter">
    <property name="text">
     <string>Über LogItemCounter</string>
+   </property>
+  </action>
+  <action name="actionQuit">
+   <property name="text">
+    <string>Quit</string>
    </property>
   </action>
  </widget>

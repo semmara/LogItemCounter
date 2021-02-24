@@ -7,10 +7,13 @@
 #include <QFile>
 #include <QDir>
 #include <QTextStream>
+#include <QVector>
 
 #include <QFuture>
 #include <QtConcurrent>
 #include <QtWidgets>
+
+#include "appversion.h"
 
 static const QString defaultStatusbarMsg("Author: Rainer Semma");
 
@@ -107,7 +110,7 @@ void MainWindow::on_pushButton_analyse_released()
 			const QString line = in.readLine();
 			buffer.append(line);
 			if (in.atEnd() || buffer.size() >= buffersize) {
-				QList<QFuture<int> > futureList;
+				QVector<QFuture<int> > futureList;
 				for (int i=0; i<this->ui->tableWidget->rowCount(); ++i) {
 					futureList.append(QtConcurrent::run([&](const QString &substr, const QStringList &list) {
 						int cnt(0);
@@ -151,4 +154,16 @@ void MainWindow::on_pushButton_3_released()
 	for (int i = r.size() - 1; i >= 0; --i) {
 		ui->tableWidget->removeRow(r[i]);
 	}
+}
+
+void MainWindow::on_actionQuit_triggered()
+{
+	QApplication::quit();
+}
+
+void MainWindow::on_action_about_LogItemCounter_triggered()
+{
+	QMessageBox mb;
+	mb.setText("Version: " APPVERSION);
+	mb.exec();
 }

@@ -118,6 +118,9 @@
     </property>
     <addaction name="action_about_LogItemCounter"/>
     <addaction name="separator"/>
+    <addaction name="actionSave_Filter"/>
+    <addaction name="actionLoad_Filter"/>
+    <addaction name="separator"/>
     <addaction name="actionQuit"/>
    </widget>
    <addaction name="menuLogItemCounter"/>
@@ -131,6 +134,16 @@
   <action name="actionQuit">
    <property name="text">
     <string>Quit</string>
+   </property>
+  </action>
+  <action name="actionSave_Filter">
+   <property name="text">
+    <string>Save Filter</string>
+   </property>
+  </action>
+  <action name="actionLoad_Filter">
+   <property name="text">
+    <string>Load Filter</string>
    </property>
   </action>
  </widget>

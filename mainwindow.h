@@ -29,6 +29,10 @@ private slots:
 
 	void on_action_about_LogItemCounter_triggered();
 
+	void on_actionSave_Filter_triggered();
+
+	void on_actionLoad_Filter_triggered();
+
 private:
 	Ui::MainWindow *ui;
 	QString mFilename;

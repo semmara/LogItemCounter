@@ -4,23 +4,114 @@
 #include <QDebug>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QProgressDialog>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
 #include <QVector>
+#include <QByteArray>
 
 #include <QFuture>
 #include <QtConcurrent>
 #include <QtWidgets>
 
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+
 #include "appversion.h"
 
 static const QString defaultStatusbarMsg("Author: Rainer Semma");
 
+static bool saveFiltersToFile(const QString &filename, const QStringList &filterList)
+{
+	QFile saveFile(filename);
+	if (!saveFile.open(QIODevice::WriteOnly)) {
+		qDebug() << "failed to save filters to" << saveFile.fileName();
+		return false;
+	}
+
+	QJsonObject settings;
+	settings["version"] = APPVERSION;
+	QJsonArray filters;
+	foreach (const QString &filter, filterList) {
+		filters.append(filter);
+	}
+	settings["filters"] = filters;
+	QJsonDocument saveDoc(settings);
+	saveFile.write(saveDoc.toJson());
+
+	saveFile.close();
+
+	return true;
+}
+
+static bool readFiltersFromFile(const QString &filename, QStringList &filterList)
+{
+	filterList.clear();
+
+	QFile loadFile(filename);
+	if (!loadFile.open(QIODevice::ReadOnly)) {
+		qDebug() << "failed to load filters from" << loadFile.fileName();
+		return false;
+	}
+
+	QByteArray ba = loadFile.readAll();
+	QJsonDocument loadDoc(QJsonDocument::fromJson(ba));
+	QString version = loadDoc.object()["version"].toString();
+	if (version != APPVERSION) {
+		qDebug() << "mismatch in settings version";
+	} else {
+		qDebug() << "match in settings version";
+	}
+	QJsonArray filters = loadDoc.object()["filters"].toArray();
+	while (!filters.isEmpty()) {
+		filterList.append(filters.takeAt(0).toString());
+	}
+
+	loadFile.close();
+
+	return true;
+}
+
+template<class T>
+class PropertyLoadAndSaveHelper {
+	QString mKey;
+	T mValue;
+public:
+	PropertyLoadAndSaveHelper(const QString &key, const T &defaultValue)
+		: mKey(key)
+		, mValue(defaultValue)
+	{
+		const QVariant var = QApplication::instance()->property(key.toStdString().c_str());
+		if (var.isValid()) {
+			if (var.canConvert<T>()) {
+				mValue = var.value<T>();
+			}
+		}
+	}
+
+	T getValue() const
+	{
+		return mValue;
+	}
+
+	void update(const T &value)
+	{
+		mValue = value;
+	}
+
+	~PropertyLoadAndSaveHelper()
+	{
+		(void)QApplication::instance()->setProperty(mKey.toStdString().c_str(), QVariant::fromValue(mValue));
+	}
+};
+
 MainWindow::MainWindow(QWidget *parent)
 	: QMainWindow(parent)
 	, ui(new Ui::MainWindow)
-	, mFilename()
+	, mFilename(QDir::homePath())
 {
 	ui->setupUi(this);
 	QHeaderView *header = ui->tableWidget->horizontalHeader();
@@ -35,11 +126,17 @@ MainWindow::~MainWindow()
 	delete ui;
 }
 
+/*!
+ * \brief set selected (workon) file
+ */
 void MainWindow::on_pushButton_released()
 {
-	mFilename = QFileDialog::getOpenFileName(this, "Open file", QDir::homePath(), tr("Text files (*.txt *.log)"));
+	PropertyLoadAndSaveHelper<QString> plash("selected_file", mFilename);
+
+	mFilename = QFileDialog::getOpenFileName(this, "Open file", plash.getValue(), tr("Text files (*.txt *.log)"));
 	if (mFilename.isEmpty())
 		return;
+	plash.update(QFileInfo(mFilename).absoluteDir().absolutePath());
 
 	qDebug() << "selected file:" << mFilename;
 	ui->statusbar->showMessage(mFilename);
@@ -48,6 +145,9 @@ void MainWindow::on_pushButton_released()
 	resetCounter();
 }
 
+/*!
+ * \brief	add filter to list
+ */
 void MainWindow::on_pushButton_2_released()
 {
 	bool ok(false);
@@ -73,6 +173,9 @@ void MainWindow::resetCounter()
 	}
 }
 
+/*!
+ * \brief	analyse selected file with given filters
+ */
 void MainWindow::on_pushButton_analyse_released()
 {
 	/* sanity checks */
@@ -91,8 +194,20 @@ void MainWindow::on_pushButton_analyse_released()
 		ui->statusbar->showMessage(tr("Selected file not found"), 3000);
 		return;
 	}
+	if (!QFileInfo(mFilename).isFile()) {
+		qDebug() << "Selected type is not a file" << mFilename;
+		ui->statusbar->showMessage(tr("No file selected"), 3000);
+		return;
+	}
+	if (!QFileInfo(mFilename).isReadable()) {
+		qDebug() << "Selected file is not readable" << mFilename;
+		ui->statusbar->showMessage(tr("Selected file is not readable"), 3000);
+		return;
+	}
 
 	/* disable user edit */
+	QProgressDialog progress("Analysing file...", "Abort", 0, 100, this);
+	progress.setWindowModality(Qt::WindowModal);
 
 	/* reset counter */
 	resetCounter();
@@ -100,15 +215,19 @@ void MainWindow::on_pushButton_analyse_released()
 	/* start analysis */
 	ui->statusbar->showMessage(tr("Running analysis"));
 	QFile inputFile(mFilename);
+	qint64 size(QFile(mFilename).size());
 	if (inputFile.open(QIODevice::ReadOnly))
 	{
 		QTextStream in(&inputFile);
 		QStringList buffer;
 		const int buffersize(100);
-		while (!in.atEnd())
+		int lineCnt(0);
+		while (!in.atEnd() && !progress.wasCanceled())
 		{
 			const QString line = in.readLine();
 			buffer.append(line);
+			++lineCnt;
+			progress.setValue(static_cast<int>((lineCnt * 200. * 100.) / static_cast<double>(size)));
 			if (in.atEnd() || buffer.size() >= buffersize) {
 				QVector<QFuture<int> > futureList;
 				for (int i=0; i<this->ui->tableWidget->rowCount(); ++i) {
@@ -138,11 +257,21 @@ void MainWindow::on_pushButton_analyse_released()
 		}
 		inputFile.close();
 	}
-	ui->statusbar->showMessage(tr(defaultStatusbarMsg.toStdString().c_str()));
+	if (progress.wasCanceled()) {
+		qDebug() << "analyse was canceled";
+		ui->statusbar->showMessage(tr("analyse was canceled"));
+		resetCounter();
+	} else {
+		progress.setValue(100);
+		ui->statusbar->showMessage(tr(defaultStatusbarMsg.toStdString().c_str()));
+	}
 
 	/* enable user edit */
 }
 
+/*!
+ * \brief	remove selected rows
+ */
 void MainWindow::on_pushButton_3_released()
 {
 	QSet<int> rows;
@@ -156,14 +285,69 @@ void MainWindow::on_pushButton_3_released()
 	}
 }
 
+/*!
+ * \brief	quit application
+ */
 void MainWindow::on_actionQuit_triggered()
 {
 	QApplication::quit();
 }
 
+/*!
+ * \brief	show about infos
+ */
 void MainWindow::on_action_about_LogItemCounter_triggered()
 {
 	QMessageBox mb;
 	mb.setText("Version: " APPVERSION);
 	mb.exec();
+}
+
+/*!
+ * \brief	save filters
+ */
+void MainWindow::on_actionSave_Filter_triggered()
+{
+	PropertyLoadAndSaveHelper<QString> plash("filter_file", QDir::homePath());
+	QString filename = QFileDialog::getSaveFileName(this, tr("Save Filter File"), plash.getValue(), tr("Filter Files (*.licf)"));
+	if (filename.isEmpty())
+		return;
+	plash.update(filename);
+
+	QStringList filters;
+	for (int i=0; i<this->ui->tableWidget->rowCount(); ++i) {
+		QTableWidgetItem *item = this->ui->tableWidget->item(i, 0);
+		filters.append(item->text());
+	}
+	if (!saveFiltersToFile(filename, filters)) {
+		qDebug() << "save failed";
+	}
+}
+
+void MainWindow::on_actionLoad_Filter_triggered()
+{
+	PropertyLoadAndSaveHelper<QString> plash("filter_file", QDir::homePath());
+	QString filename = QFileDialog::getOpenFileName(this, tr("Load Filter File"), plash.getValue(), tr("Filter Files (*.licf)"));
+	if (filename.isEmpty())
+		return;
+	plash.update(filename);
+
+	QStringList filters;
+	if (!readFiltersFromFile(filename, filters)) {
+		qDebug() << "load failed";
+		return;
+	}
+	/* clean table */
+	while (ui->tableWidget->rowCount()) {
+		ui->tableWidget->removeRow(0);
+	}
+	/* fill table */
+	foreach (const QString &filter, filters) {
+		const int row(this->ui->tableWidget->rowCount());
+		this->ui->tableWidget->insertRow(row);
+		/* add filter */
+		this->ui->tableWidget->setItem(row, 0, new QTableWidgetItem(filter));
+		/* add count */
+		this->ui->tableWidget->setItem(row, 1, new QTableWidgetItem("0"));
+	}
 }

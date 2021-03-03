@@ -227,7 +227,7 @@ void MainWindow::on_pushButton_analyse_released()
 			const QString line = in.readLine();
 			buffer.append(line);
 			++lineCnt;
-			progress.setValue(static_cast<int>((lineCnt * 200. * 100.) / static_cast<double>(size)));
+			progress.setValue(qMin(static_cast<int>((lineCnt * 200. * 100.) / static_cast<double>(size)), progress.maximum() - 1));
 			if (in.atEnd() || buffer.size() >= buffersize) {
 				QVector<QFuture<int> > futureList;
 				for (int i=0; i<this->ui->tableWidget->rowCount(); ++i) {
@@ -262,7 +262,7 @@ void MainWindow::on_pushButton_analyse_released()
 		ui->statusbar->showMessage(tr("analyse was canceled"));
 		resetCounter();
 	} else {
-		progress.setValue(100);
+		progress.setValue(progress.maximum());
 		ui->statusbar->showMessage(tr(defaultStatusbarMsg.toStdString().c_str()));
 	}
 
